@@ -32,6 +32,12 @@ export function addScript(object, funcSource, name, options = {}) {
   return p.addScript(object, funcSource, name);
 }
 
+export function removeScript(object, name, options = {}) {
+  let p = options.package || ObjectPackage.lookupPackageForObject(object, options);
+  if (!p) throw new Error(`Object is not part of an object package: ${object}`);
+  return p.removeScript(object, name);
+}
+
 export function isObjectClass(klass, options) {
   let {System} = normalizeOptions(options),
       modMeta = klass[Symbol.for("lively-module-meta")],
@@ -128,6 +134,10 @@ export default class ObjectPackage {
 
   addScript(object, funcSource, name) {
     return this.objectModule.addScript(object, funcSource, name);
+  }
+
+  removeScript(object, name) {
+    return this.objectModule.removeScript(object, name);
   }
 
   remove() {
@@ -366,6 +376,36 @@ class ObjectModule {
 
     return {script: klass.prototype[methodName], klass, module: descr.module.id, methodName};
 
+  }
+
+  async removeScript(object, name) {
+    if (!name) {
+      throw new Error('No name, cannot remove script!');
+    }
+
+    let klass = object.constructor === this.objectClass ?
+                  object.constructor :
+                  await this.ensureObjectClass(object.constructor);
+    let methodName = toJsIdentifier(name);
+    let descr = RuntimeSourceDescriptor.for(klass, this.System);
+    let source = descr.source;
+    let classDecl = descr.ast;
+    if (!classDecl) {
+      throw new Error(`Cannot find class decl of ${descr.module.id}!`);
+    }
+
+    let existing = classDecl.body.body.find(method =>
+                  method.key.name === methodName && !method.static);
+
+    if (existing) {
+      source = source.slice(0, existing.start) + source.slice(existing.end + 1);
+    } else {
+      throw new Error(`Cannot find method decl of ${methodName}!`);
+    }
+
+    await descr.changeSource(source);
+
+    return {klass, module: descr.module.id};
   }
 
 }
